@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Atomberg Goal Portal — Architecture Diagram</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 40px;
+    min-height: 100vh;
+  }
+  h1 {
+    text-align: center;
+    font-size: 28px;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 6px;
+    letter-spacing: -0.5px;
+  }
+  .subtitle {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 14px;
+    margin-bottom: 48px;
+  }
+
+  /* ── Layout ── */
+  .diagram {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* ── Layer boxes ── */
+  .layer {
+    border-radius: 16px;
+    padding: 24px 28px;
+    position: relative;
+  }
+  .layer-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    opacity: 0.7;
+  }
+  .layer-browser  { background: #1e293b; border: 1px solid #334155; }
+  .layer-server   { background: #1a2744; border: 1px solid #2d4a8a; }
+  .layer-db       { background: #1a2e1a; border: 1px solid #2d6a2d; }
+  .layer-external { background: #2a1a2e; border: 1px solid #6a2d8a; }
+
+  /* ── Role cards ── */
+  .roles {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .role-card {
+    flex: 1;
+    min-width: 160px;
+    background: #0f172a;
+    border-radius: 10px;
+    padding: 14px 16px;
+    border: 1px solid #334155;
+    text-align: center;
+  }
+  .role-card .emoji { font-size: 28px; display: block; margin-bottom: 6px; }
+  .role-card .name  { font-size: 13px; font-weight: 600; color: #f1f5f9; }
+  .role-card .desc  { font-size: 11px; color: #64748b; margin-top: 4px; }
+
+  /* ── Store box ── */
+  .store-box {
+    background: #0f172a;
+    border: 1px solid #3b82f6;
+    border-radius: 10px;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .store-box .store-title { font-size: 14px; font-weight: 700; color: #60a5fa; }
+  .store-box .store-desc  { font-size: 12px; color: #64748b; }
+
+  /* ── API routes ── */
+  .api-routes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .api-card {
+    background: #0f172a;
+    border-radius: 10px;
+    padding: 14px 16px;
+    border-left: 3px solid;
+  }
+  .api-card.sync    { border-color: #3b82f6; }
+  .api-card.ai      { border-color: #f59e0b; }
+  .api-card.teams   { border-color: #8b5cf6; }
+  .api-card.reset   { border-color: #ef4444; }
+  .api-card .method { font-size: 10px; font-weight: 700; letter-spacing: 1px; opacity: 0.6; }
+  .api-card .path   { font-size: 13px; font-weight: 700; color: #f1f5f9; margin: 2px 0; font-family: monospace; }
+  .api-card .desc   { font-size: 11px; color: #64748b; }
+
+  /* ── DB tables ── */
+  .db-tables {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .db-table {
+    background: #0f172a;
+    border: 1px solid #166534;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-family: monospace;
+    color: #4ade80;
+  }
+
+  /* ── External services ── */
+  .externals {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .ext-card {
+    flex: 1;
+    min-width: 180px;
+    background: #0f172a;
+    border-radius: 10px;
+    padding: 14px 16px;
+    border: 1px solid #6d28d9;
+    text-align: center;
+  }
+  .ext-card .ext-emoji { font-size: 24px; display: block; margin-bottom: 6px; }
+  .ext-card .ext-name  { font-size: 13px; font-weight: 700; color: #c4b5fd; }
+  .ext-card .ext-desc  { font-size: 11px; color: #64748b; margin-top: 4px; }
+
+  /* ── Arrows ── */
+  .arrow {
+    text-align: center;
+    font-size: 22px;
+    color: #475569;
+    line-height: 1;
+    margin: -8px 0;
+  }
+
+  /* ── Flow section ── */
+  .flows {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 20px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .flow-card {
+    background: #1e293b;
+    border-radius: 14px;
+    padding: 20px;
+    border: 1px solid #334155;
+  }
+  .flow-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .flow-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: #cbd5e1;
+  }
+  .step-num {
+    background: #334155;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+    color: #94a3b8;
+  }
+  .step-arrow {
+    color: #475569;
+    font-size: 14px;
+    margin-left: 24px;
+    margin-bottom: 4px;
+  }
+
+  /* ── Tech stack ── */
+  .tech-stack {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    max-width: 1100px;
+    margin: 0 auto;
+    justify-content: center;
+  }
+  .tech-badge {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #94a3b8;
+  }
+
+  /* ── Print ── */
+  @media print {
+    body { background: white; color: black; padding: 20px; }
+    .layer-browser  { background: #f8fafc; border-color: #cbd5e1; }
+    .layer-server   { background: #eff6ff; border-color: #bfdbfe; }
+    .layer-db       { background: #f0fdf4; border-color: #bbf7d0; }
+    .layer-external { background: #faf5ff; border-color: #e9d5ff; }
+    .role-card, .store-box, .api-card, .db-table, .ext-card, .flow-card {
+      background: white; border-color: #e2e8f0;
+    }
+    h1, .flow-title { color: #0f172a; }
+    .subtitle, .role-card .desc, .api-card .desc, .ext-card .ext-desc,
+    .store-box .store-desc, .flow-step { color: #475569; }
+    .role-card .name, .api-card .path, .ext-card .ext-name,
+    .store-box .store-title { color: #1e293b; }
+    .db-table { color: #166534; }
+    .tech-badge { background: #f1f5f9; color: #475569; }
+  }
+</style>
+</head>
+<body>
+
+<h1>⚡ Atomberg Goal Portal</h1>
+<p class="subtitle">System Architecture — AtomQuest Hackathon 1.0</p>
+
+<div class="diagram">
+
+  <!-- BROWSER LAYER -->
+  <div class="layer layer-browser">
+    <div class="layer-label">🌐 Browser — Client Layer (Next.js 16 App Router)</div>
+
+    <div class="roles">
+      <div class="role-card">
+        <span class="emoji">👨‍💼</span>
+        <div class="name">Employee</div>
+        <div class="desc">Create goals · Check-ins · View status</div>
+      </div>
+      <div class="role-card">
+        <span class="emoji">👩‍💼</span>
+        <div class="name">Manager (L1)</div>
+        <div class="desc">Approve · Return · Comment · Push shared goals</div>
+      </div>
+      <div class="role-card">
+        <span class="emoji">👨‍💻</span>
+        <div class="name">Admin / HR</div>
+        <div class="desc">Unlock · Delete · Audit · Escalations · Analytics</div>
+      </div>
+    </div>
+
+    <div class="store-box">
+      <div>
+        <div class="store-title">⚡ Zustand Store</div>
+        <div class="store-desc">In-memory state · Syncs to Supabase via /api/sync · Falls back to localStorage</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↕</div>
+
+  <!-- SERVER LAYER -->
+  <div class="layer layer-server">
+    <div class="layer-label">🖥️ Server — Next.js API Routes (Service Role Key)</div>
+    <div class="api-routes">
+      <div class="api-card sync">
+        <div class="method">GET · POST · PATCH · PUT · DELETE</div>
+        <div class="path">/api/sync</div>
+        <div class="desc">Full state sync · Upserts · Partial updates · Deletes — bypasses RLS</div>
+      </div>
+      <div class="api-card ai">
+        <div class="method">POST</div>
+        <div class="path">/api/ai/suggest</div>
+        <div class="desc">Groq LLM → AI goal title suggestions based on role + thrust area</div>
+      </div>
+      <div class="api-card teams">
+        <div class="method">POST</div>
+        <div class="path">/api/notify/teams</div>
+        <div class="desc">Teams Incoming Webhook → goal submitted / approved / returned / check-in</div>
+      </div>
+      <div class="api-card reset">
+        <div class="method">POST</div>
+        <div class="path">/api/reset-demo</div>
+        <div class="desc">Admin only — wipes all transactional data, reseeds demo goal</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↕</div>
+
+  <!-- DATABASE LAYER -->
+  <div class="layer layer-db">
+    <div class="layer-label">🗄️ Supabase — PostgreSQL Database</div>
+    <div class="db-tables">
+      <div class="db-table">profiles</div>
+      <div class="db-table">goals</div>
+      <div class="db-table">approvals</div>
+      <div class="db-table">checkins</div>
+      <div class="db-table">audit_logs</div>
+      <div class="db-table">notifications</div>
+      <div class="db-table">escalation_rules</div>
+      <div class="db-table">escalation_logs</div>
+    </div>
+  </div>
+
+  <div class="arrow">↕</div>
+
+  <!-- EXTERNAL SERVICES -->
+  <div class="layer layer-external">
+    <div class="layer-label">🔌 External Services</div>
+    <div class="externals">
+      <div class="ext-card">
+        <span class="ext-emoji">🤖</span>
+        <div class="ext-name">Groq AI</div>
+        <div class="ext-desc">llama-3 model · Goal title suggestions · Fallback to templates</div>
+      </div>
+      <div class="ext-card">
+        <span class="ext-emoji">💬</span>
+        <div class="ext-name">Microsoft Teams</div>
+        <div class="ext-desc">Incoming Webhook · Adaptive cards · Deep-links back to portal</div>
+      </div>
+      <div class="ext-card">
+        <span class="ext-emoji">▲</span>
+        <div class="ext-name">Vercel</div>
+        <div class="ext-desc">Hosting · Edge functions · Env vars · Auto-deploy from GitHub</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- FLOWS -->
+<br/>
+<h1 style="font-size:20px; margin-bottom:6px;">📋 Key User Flows</h1>
+<p class="subtitle" style="margin-bottom:24px;">End-to-end journeys per role</p>
+
+<div class="flows">
+
+  <div class="flow-card">
+    <div class="flow-title" style="color:#60a5fa;">👨‍💼 Employee Journey</div>
+    <div class="flow-step"><div class="step-num">1</div>Create goals (draft)</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">2</div>Set weightage until total = 100%</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">3</div>Submit goal sheet</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">4</div>Wait for manager approval</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">5</div>Goal locked → submit check-ins</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">6</div>Mark status: On Track / Completed</div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-title" style="color:#4ade80;">👩‍💼 Manager Journey</div>
+    <div class="flow-step"><div class="step-num">1</div>Receive notification (in-app + Teams)</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">2</div>Review goal sheet in Approvals</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">3</div>Inline-edit target / weightage</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">4</div>Approve / Return / Reject</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">5</div>View Planned vs Actual in Team page</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">6</div>Add structured check-in comment</div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-title" style="color:#f87171;">👨‍💻 Admin Journey</div>
+    <div class="flow-step"><div class="step-num">1</div>Monitor org-wide dashboard</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">2</div>View analytics + completion rates</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">3</div>Unlock goals (exception handling)</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">4</div>Review post-lock audit trail</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">5</div>Configure escalation rules</div>
+    <div class="step-arrow">↓</div>
+    <div class="flow-step"><div class="step-num">6</div>Export achievement report (CSV)</div>
+  </div>
+
+</div>
+
+<br/>
+
+<!-- TECH STACK -->
+<div class="tech-stack">
+  <div class="tech-badge">⚡ Next.js 16</div>
+  <div class="tech-badge">🐻 Zustand</div>
+  <div class="tech-badge">🗄️ Supabase PostgreSQL</div>
+  <div class="tech-badge">🎨 Tailwind CSS</div>
+  <div class="tech-badge">🧩 shadcn/ui</div>
+  <div class="tech-badge">📊 Recharts</div>
+  <div class="tech-badge">🤖 Groq AI</div>
+  <div class="tech-badge">💬 Microsoft Teams</div>
+  <div class="tech-badge">▲ Vercel</div>
+  <div class="tech-badge">🔷 TypeScript</div>
+</div>
+
+<br/>
+<p style="text-align:center; color:#475569; font-size:12px;">
+  To export as PDF: Open this file in Chrome → File → Print → Save as PDF (set to A3 landscape for best results)
+</p>
+
+</body>
+</html>
