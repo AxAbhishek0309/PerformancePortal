@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ Atomberg Goal Portal
+# ⚡ Atomberg Goal Performance Portal 
 ### In-House Goal Setting & Performance Tracking System
 #### AtomQuest Hackathon 1.0 — Problem Statement Submission
 
