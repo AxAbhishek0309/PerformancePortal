@@ -40,7 +40,6 @@ export default function MyGoalsPage() {
   const totalWeightage = myGoals.reduce((sum, g) => sum + g.weightage, 0);
   const atWeightageCapacity = totalWeightage >= 100;
   const draftGoals = myGoals.filter((g) => g.status === 'draft');
-  const canSubmitAll = draftGoals.length > 0 && totalWeightage === 100;
   const goalSettingOpen = isGoalSettingOpen();
 
   const handleEdit = (goal: Goal) => {
@@ -49,7 +48,7 @@ export default function MyGoalsPage() {
   };
 
   const handleCreate = () => {
-    if (!goalSettingOpen) {
+    if (user?.role !== 'admin' && !goalSettingOpen) {
       toast.error('Goal setting window is closed');
       return;
     }
@@ -98,7 +97,8 @@ export default function MyGoalsPage() {
               Submit Goal Sheet
             </Button>
           )}
-          <Button variant="outline" className="gap-2" onClick={handleCreate} disabled={myGoals.length >= 8 || !goalSettingOpen || atWeightageCapacity}
+          <Button variant="outline" className="gap-2" onClick={handleCreate}
+            disabled={myGoals.length >= 8 || (user?.role !== 'admin' && (!goalSettingOpen || atWeightageCapacity))}
             title={atWeightageCapacity ? 'Free up weightage before adding a new goal' : undefined}>
             <Plus className="w-4 h-4" />
             Add Goal
@@ -163,8 +163,15 @@ function GoalCard({
   const progress = calculateProgress(goal);
   const isEditable = canEditGoal(goal, userId);
   const sharedWeightageOnly = canEditSharedGoalWeightage(goal, userId);
-  const canCheckin =
-    goal.ownerId === userId && isGoalActiveForCheckin(goal) && isCheckinOpen();
+
+  // Check-in requires: own the goal + goal is locked/approved + check-in window is open
+  const isOwner = goal.ownerId === userId;
+  const goalActive = isGoalActiveForCheckin(goal);
+  const windowOpen = isCheckinOpen();
+  const canCheckin = isOwner && goalActive && windowOpen;
+
+  // Show a disabled check-in button with a reason when the goal is active but window is closed
+  const showCheckinDisabled = isOwner && goalActive && !windowOpen;
 
   return (
     <Card className="p-6 hover:shadow-md transition-shadow">
@@ -190,6 +197,21 @@ function GoalCard({
               <ClipboardList className="w-3.5 h-3.5" />
               Check-in
             </Button>
+          )}
+          {showCheckinDisabled && (
+            <Button variant="outline" size="sm" className="gap-1 opacity-50 cursor-not-allowed" disabled title="Check-in window is currently closed">
+              <ClipboardList className="w-3.5 h-3.5" />
+              Check-in
+            </Button>
+          )}
+          {isOwner && !goalActive && (
+            <span className="text-xs text-muted-foreground px-2">
+              {goal.status === 'draft' || goal.status === 'submitted'
+                ? 'Awaiting approval'
+                : goal.status === 'returned'
+                  ? 'Returned — edit & resubmit'
+                  : null}
+            </span>
           )}
           {(isEditable || sharedWeightageOnly) && (
             <>

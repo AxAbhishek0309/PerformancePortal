@@ -9,6 +9,17 @@ const RELAX =
   typeof process !== 'undefined' &&
   process.env.NEXT_PUBLIC_RELAX_CYCLE === 'true';
 
+// Also check window (client-side) in case the env var is only available there
+function isRelaxed(): boolean {
+  if (RELAX) return true;
+  if (typeof window !== 'undefined') {
+    // Next.js inlines NEXT_PUBLIC_ vars at build time, so this is always the same value
+    // but we check both to be safe
+    return process.env.NEXT_PUBLIC_RELAX_CYCLE === 'true';
+  }
+  return false;
+}
+
 export type CyclePhase =
   | 'goal_setting'
   | 'q1_checkin'
@@ -85,7 +96,7 @@ function isDateInWindow(date: Date, year: number, w: CycleWindow): boolean {
 }
 
 export function getActiveWindows(date: Date = new Date()): CycleWindow[] {
-  if (RELAX) return CYCLE_WINDOWS;
+  if (isRelaxed()) return CYCLE_WINDOWS;
   const year = date.getFullYear();
   return CYCLE_WINDOWS.filter((w) => isDateInWindow(date, year, w));
 }

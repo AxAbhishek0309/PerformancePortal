@@ -6,13 +6,11 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Search, Plus, Filter } from 'lucide-react';
+import { Search, Filter, Trash2, Unlock } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { GoalForm } from '@/components/goals/goal-form';
 import { calculateProgress } from '@/lib/goal-utils';
 import { toast } from 'sonner';
-import { Unlock } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
@@ -27,11 +25,11 @@ const STATUS_FILTERS = ['all', 'draft', 'submitted', 'approved', 'returned', 'lo
 export default function GoalsPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const { goals, unlockGoal } = useStore();
+  const { goals, users, unlockGoal, deleteGoal } = useStore();
   const isAdmin = user?.role === 'admin';
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<typeof STATUS_FILTERS[number]>('all');
-  const [goalFormOpen, setGoalFormOpen] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const filtered = goals.filter((g) => {
     const matchesSearch =
@@ -49,10 +47,16 @@ export default function GoalsPage() {
           <h1 className="text-3xl font-bold text-foreground">All Goals</h1>
           <p className="text-muted-foreground mt-1">{filtered.length} goals</p>
         </div>
-        <Button className="gap-2" onClick={() => setGoalFormOpen(true)}>
-          <Plus className="w-4 h-4" />
-          New Goal
-        </Button>
+        {isAdmin && filtered.length > 0 && (
+          <Button
+            variant="outline"
+            className="gap-2 text-destructive border-destructive/40 hover:bg-destructive/10"
+            onClick={() => setConfirmDeleteId('__all__')}
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete All ({filtered.length})
+          </Button>
+        )}
       </div>
 
       {/* Search + status filter */}
@@ -112,7 +116,9 @@ export default function GoalsPage() {
                         <p className="font-medium text-foreground">{goal.title}</p>
                         <p className="text-xs text-muted-foreground line-clamp-1">{goal.description}</p>
                       </td>
-                      <td className="py-4 px-4 text-muted-foreground text-xs">{goal.ownerId}</td>
+                      <td className="py-4 px-4 text-muted-foreground text-xs">
+                        {Object.values(users).find((u) => u.id === goal.ownerId)?.name ?? goal.ownerId}
+                      </td>
                       <td className="py-4 px-4 text-sm text-muted-foreground">{goal.thrustArea}</td>
                       <td className="py-4 px-4">
                         <Badge className={STATUS_COLORS[goal.status]}>
@@ -145,6 +151,16 @@ export default function GoalsPage() {
                               Unlock
                             </Button>
                           )}
+                          {isAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => setConfirmDeleteId(goal.id)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                           <Button variant="ghost" size="sm" onClick={() => router.push(`/goals/${goal.id}`)}>
                             View
                           </Button>
@@ -159,7 +175,48 @@ export default function GoalsPage() {
         </div>
       </Card>
 
-      <GoalForm open={goalFormOpen} onClose={() => setGoalFormOpen(false)} />
+      {/* Delete confirmation dialog */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-background rounded-lg border border-border p-6 w-full max-w-sm shadow-xl space-y-4">
+            <h2 className="text-lg font-semibold text-foreground">
+              {confirmDeleteId === '__all__' ? `Delete all ${filtered.length} goals?` : 'Delete this goal?'}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {confirmDeleteId === '__all__'
+                ? 'This will permanently delete all goals currently shown (matching your search/filter). This cannot be undone.'
+                : 'This will permanently delete the goal and all associated data. This cannot be undone.'}
+            </p>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setConfirmDeleteId(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={() => {
+                  if (!user) return;
+                  if (confirmDeleteId === '__all__') {
+                    filtered.forEach((g) => deleteGoal(g.id, user.id));
+                    toast.success(`Deleted ${filtered.length} goals`);
+                  } else {
+                    const goal = goals.find((g) => g.id === confirmDeleteId);
+                    deleteGoal(confirmDeleteId, user.id);
+                    toast.success(`"${goal?.title ?? 'Goal'}" deleted`);
+                  }
+                  setConfirmDeleteId(null);
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

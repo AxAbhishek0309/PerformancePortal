@@ -7,6 +7,16 @@ import {
 } from './mock-data';
 import { MOCK_USERS } from './auth-context';
 
+// ─── Teams notification helper (fire-and-forget) ─────────────────────────────
+
+function notifyTeams(body: Record<string, unknown>) {
+  fetch('/api/notify/teams', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch(() => {}); // silent — Teams is optional
+}
+
 // ─── Detect if Supabase is configured ────────────────────────────────────────
 
 const USE_SUPABASE =
@@ -24,9 +34,16 @@ function auditEntry(
   resourceId: string,
   changes?: AuditLog['changes']
 ): AuditLog {
+  // BRD §4 — mark as post-lock if the resource being changed is a locked goal
+  const goals = useStore.getState?.()?.goals ?? [];
+  const isLockedGoal =
+    resourceType === 'goal' &&
+    goals.some((g) => g.id === resourceId && g.status === 'locked');
+
   return {
     id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     userId, action, resourceType, resourceId, changes,
+    afterLock: isLockedGoal,
     timestamp: new Date(),
   };
 }
@@ -65,7 +82,7 @@ export interface AppState {
   pushSharedGoal: (baseGoal: Omit<Goal, 'id' | 'createdAt' | 'updatedAt'>, recipientIds: string[], actorId: string) => Promise<void>;
 
   // Check-ins
-  addCheckin: (checkin: CheckIn, actorId: string) => Promise<void>;
+  addCheckin: (checkin: CheckIn, actorId: string, performanceStatus: PerformanceStatus) => Promise<void>;
   addManagerComment: (checkinId: string, comment: string, actorId: string) => Promise<void>;
 
   // Notifications
@@ -148,9 +165,15 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   submitGoal: async (id, actorId) => {
-    const { goals, approvals, notifications } = get();
+    const { goals, approvals, notifications, users } = get();
     const goal = goals.find((g) => g.id === id);
     if (!goal) return;
+
+    // Route notification to the goal owner's manager, fallback to first manager found
+    const owner = Object.values(users).find((u) => u.id === actorId);
+    const managerId = owner?.managerId
+      ?? Object.values(users).find((u) => u.role === 'manager')?.id
+      ?? 'mgr-001';
 
     const newApproval: Approval = {
       id: `approval-${Date.now()}`,
@@ -160,9 +183,9 @@ export const useStore = create<AppState>((set, get) => ({
       history: [{ timestamp: new Date(), action: 'submitted', actor: actorId }],
     };
     const notif: Notification = {
-      id: `notif-${Date.now()}`, userId: 'mgr-001',
+      id: `notif-${Date.now()}`, userId: managerId,
       type: 'approval_needed', title: 'Goal Approval Required',
-      message: `${actorId} submitted "${goal.title}" for approval`,
+      message: `${owner?.name ?? actorId} submitted "${goal.title}" for approval`,
       relatedId: id, read: false, createdAt: new Date(),
     };
     const log = auditEntry(actorId, 'submit', 'goal', id);
@@ -175,6 +198,8 @@ export const useStore = create<AppState>((set, get) => ({
         db.createAuditLog(log),
       ]);
     }
+    // Teams: notify manager that a goal was submitted
+    notifyTeams({ event: 'goal_submitted', employeeName: owner?.name ?? actorId, goalTitle: goal.title });
     set({
       goals: goals.map((g) => g.id === id ? { ...g, status: 'submitted', updatedAt: new Date() } : g),
       approvals: [...approvals, newApproval],
@@ -228,6 +253,9 @@ export const useStore = create<AppState>((set, get) => ({
         db.createAuditLog(log),
       ]);
     }
+    // Teams: notify employee their goal was approved
+    const reviewer = Object.values(get().users).find((u) => u.id === reviewerId);
+    notifyTeams({ event: 'goal_approved', goalTitle: approval.goalTitle, reviewerName: reviewer?.name ?? reviewerId });
     set({
       goals: goals.map((g) => g.id === approval.goalId ? { ...g, status: 'locked', approvedBy: reviewerId, approvedAt: new Date(), updatedAt: new Date() } : g),
       approvals: approvals.map((a) => a.id === approvalId ? { ...a, ...updatedApproval } : a),
@@ -261,6 +289,8 @@ export const useStore = create<AppState>((set, get) => ({
         db.createAuditLog(log),
       ]);
     }
+    // Teams: notify employee their goal was returned
+    notifyTeams({ event: 'goal_returned', goalTitle: approval.goalTitle, comment });
     set({
       goals: goals.map((g) => g.id === approval.goalId ? { ...g, status: 'returned', updatedAt: new Date() } : g),
       approvals: approvals.map((a) => a.id === approvalId ? { ...a, ...updatedApproval } : a),
@@ -330,10 +360,17 @@ export const useStore = create<AppState>((set, get) => ({
 
   pushSharedGoal: async (baseGoal, recipientIds, actorId) => {
     const now = new Date();
+    // Use a stable parentGoalId so achievement sync works across all copies
+    const parentGoalId = `goal-shared-parent-${Date.now()}`;
     const newGoals: Goal[] = recipientIds.map((rid) => ({
-      ...baseGoal, id: `goal-shared-${Date.now()}-${rid}`,
-      ownerId: rid, isShared: true, sharedBy: actorId,
-      createdAt: now, updatedAt: now,
+      ...baseGoal,
+      id: `goal-shared-${Date.now()}-${rid}`,
+      ownerId: rid,
+      isShared: true,
+      sharedBy: actorId,
+      parentGoalId,   // all copies share the same parentGoalId for sync
+      createdAt: now,
+      updatedAt: now,
     }));
     if (USE_SUPABASE) await Promise.all(newGoals.map((g) => db.createGoal(g)));
     const logs = newGoals.map((g) => auditEntry(actorId, 'push-shared-goal', 'goal', g.id));
@@ -343,16 +380,45 @@ export const useStore = create<AppState>((set, get) => ({
 
   // ── Check-ins ──────────────────────────────────────────────────────────────
 
-  addCheckin: async (checkin, actorId) => {
+  addCheckin: async (checkin, actorId, performanceStatus) => {
     if (USE_SUPABASE) await db.createCheckin(checkin);
-    if (USE_SUPABASE) await db.updateGoal(checkin.goalId, { currentValue: checkin.progressValue });
+    // Update both currentValue AND performanceStatus atomically in one DB call
+    if (USE_SUPABASE) await db.updateGoal(checkin.goalId, {
+      currentValue: checkin.progressValue,
+      performanceStatus,
+    });
     const log = auditEntry(actorId, 'checkin', 'checkin', checkin.id);
     if (USE_SUPABASE) await db.createAuditLog(log);
+
+    // BRD §2.1 — achievement updates by the primary owner sync across all linked shared goal copies
+    const updatedGoal = get().goals.find((g) => g.id === checkin.goalId);
+    const siblingIds = updatedGoal?.parentGoalId
+      ? get().goals
+          .filter((g) => g.parentGoalId === updatedGoal.parentGoalId && g.id !== checkin.goalId)
+          .map((g) => g.id)
+      : [];
+    if (USE_SUPABASE) {
+      await Promise.all(siblingIds.map((id) => db.updateGoal(id, { currentValue: checkin.progressValue, performanceStatus })));
+    }
+
     set((s) => ({
       checkins: [...s.checkins, checkin],
-      goals: s.goals.map((g) => g.id === checkin.goalId ? { ...g, currentValue: checkin.progressValue, updatedAt: new Date() } : g),
+      goals: s.goals.map((g) => {
+        if (g.id === checkin.goalId) return { ...g, currentValue: checkin.progressValue, performanceStatus, updatedAt: new Date() };
+        if (siblingIds.includes(g.id)) return { ...g, currentValue: checkin.progressValue, performanceStatus, updatedAt: new Date() };
+        return g;
+      }),
       auditLogs: [log, ...s.auditLogs],
     }));
+    // Teams: notify manager that a check-in was submitted
+    const checkinOwner = Object.values(get().users).find((u) => u.id === actorId);
+    const checkinGoal = get().goals.find((g) => g.id === checkin.goalId);
+    notifyTeams({
+      event: 'checkin_submitted',
+      employeeName: checkinOwner?.name ?? actorId,
+      goalTitle: checkinGoal?.title ?? checkin.goalId,
+      status: performanceStatus.replace(/_/g, ' '),
+    });
   },
 
   addManagerComment: async (checkinId, comment, actorId) => {

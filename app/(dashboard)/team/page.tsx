@@ -1,21 +1,18 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Target, MessageSquare } from 'lucide-react';
+import { Plus, Target, MessageSquare, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { useStore } from '@/lib/store';
-import { GoalForm } from '@/components/goals/goal-form';
 import { calculateProgress, PERFORMANCE_STATUS_CONFIG } from '@/lib/goal-utils';
 
 export default function TeamPage() {
   const router = useRouter();
   const { goals, users } = useStore();
-  const [goalFormOpen, setGoalFormOpen] = useState(false);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | undefined>();
 
   const employees = Object.values(users).filter((u) => u.role === 'employee');
 
@@ -44,6 +41,7 @@ export default function TeamPage() {
           (g.status === 'locked' || g.status === 'approved')
       );
       return memberGoals.map((g) => ({
+        goalId: g.id,
         employee: user.name,
         department: user.department ?? '—',
         goal: g.title,
@@ -57,9 +55,9 @@ export default function TeamPage() {
     });
   }, [goals, employees]);
 
-  const handleCreateGoalForEmployee = (employeeId: string) => {
-    setSelectedEmployeeId(employeeId);
-    setGoalFormOpen(true);
+  const handleCreateGoalForEmployee = (_employeeId: string) => {
+    // Per BRD §2.1, managers do not create individual employee goals.
+    // Use Shared Goals (/shared) to push a departmental KPI to employees.
   };
 
   return (
@@ -75,7 +73,7 @@ export default function TeamPage() {
       <Card className="p-6">
         <h2 className="text-lg font-semibold text-foreground mb-1">Planned vs Actual Achievement</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          Compare targets and current achievement for all approved goals (manager check-in view).
+          Compare targets and current achievement for all approved goals. Click a row to add a check-in comment.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -85,14 +83,15 @@ export default function TeamPage() {
                 <th className="text-left py-3 px-3 font-semibold">Goal</th>
                 <th className="text-right py-3 px-3 font-semibold">Planned</th>
                 <th className="text-right py-3 px-3 font-semibold">Actual</th>
-                <th className="text-right py-3 px-3 font-semibold">Score</th>
+                <th className="text-left py-3 px-3 font-semibold">Progress</th>
                 <th className="text-left py-3 px-3 font-semibold">Status</th>
+                <th className="text-right py-3 px-3 font-semibold">Action</th>
               </tr>
             </thead>
             <tbody>
               {comparisonRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                  <td colSpan={7} className="py-8 text-center text-muted-foreground">
                     No approved goals to compare yet.
                   </td>
                 </tr>
@@ -105,17 +104,44 @@ export default function TeamPage() {
                         <p className="font-medium">{row.employee}</p>
                         <p className="text-xs text-muted-foreground">{row.department}</p>
                       </td>
-                      <td className="py-3 px-3">
-                        <p className="font-medium">{row.goal}</p>
+                      <td className="py-3 px-3 max-w-[180px]">
+                        <p className="font-medium truncate">{row.goal}</p>
                         <p className="text-xs text-muted-foreground">{row.thrustArea}</p>
                       </td>
-                      <td className="py-3 px-3 text-right">{row.planned} {row.unit}</td>
-                      <td className="py-3 px-3 text-right font-semibold">{row.actual} {row.unit}</td>
-                      <td className="py-3 px-3 text-right">{row.progress}%</td>
+                      <td className="py-3 px-3 text-right whitespace-nowrap">{row.planned} {row.unit}</td>
+                      <td className="py-3 px-3 text-right font-semibold whitespace-nowrap">{row.actual} {row.unit}</td>
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-2 min-w-[100px]">
+                          <div className="flex-1 bg-muted rounded-full h-2 relative">
+                            {/* Always show a thin base line so bar is visible even at 0% */}
+                            <div
+                              className={`h-2 rounded-full transition-all duration-500 ${
+                                row.progress >= 80 ? 'bg-green-500' :
+                                row.progress >= 40 ? 'bg-blue-500' :
+                                row.progress > 0  ? 'bg-orange-400' : 'bg-muted-foreground/20'
+                              }`}
+                              style={{ width: row.progress > 0 ? `${Math.min(row.progress, 100)}%` : '4px' }}
+                            />
+                          </div>
+                          <span className="text-xs text-muted-foreground w-8 text-right">{row.progress}%</span>
+                        </div>
+                      </td>
                       <td className="py-3 px-3">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${cfg.bg} ${cfg.text}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                           {cfg.label}
                         </span>
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1 text-xs"
+                          onClick={() => router.push(`/goals/${row.goalId}`)}
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          Comment
+                        </Button>
                       </td>
                     </tr>
                   );
@@ -154,10 +180,10 @@ export default function TeamPage() {
                 <span className="text-muted-foreground">Avg Progress</span>
                 <span className="font-semibold">{avgProgress}%</span>
               </div>
-              <div className="w-full bg-muted rounded-full h-2 mt-1">
+              <div className="w-full bg-muted rounded-full h-2 mt-1 relative">
                 <div
-                  className={`h-2 rounded-full ${avgProgress >= 80 ? 'bg-green-500' : avgProgress >= 50 ? 'bg-blue-500' : 'bg-orange-500'}`}
-                  style={{ width: `${avgProgress}%` }}
+                  className={`h-2 rounded-full transition-all duration-500 ${avgProgress >= 80 ? 'bg-green-500' : avgProgress >= 50 ? 'bg-blue-500' : avgProgress > 0 ? 'bg-orange-500' : 'bg-muted-foreground/30'}`}
+                  style={{ width: avgProgress > 0 ? `${avgProgress}%` : '6px' }}
                 />
               </div>
               <div className="flex gap-1.5 flex-wrap pt-1">
@@ -179,9 +205,9 @@ export default function TeamPage() {
                 <Target className="w-3.5 h-3.5" />
                 View Goals ({memberGoals.length})
               </Button>
-              <Button variant="outline" className="w-full gap-2" onClick={() => handleCreateGoalForEmployee(user.id)}>
+              <Button variant="outline" className="w-full gap-2" onClick={() => router.push('/shared')}>
                 <Plus className="w-3.5 h-3.5" />
-                Create Goal
+                Push Shared Goal
               </Button>
               <Button
                 variant="ghost"
@@ -196,11 +222,6 @@ export default function TeamPage() {
         ))}
       </div>
 
-      <GoalForm
-        open={goalFormOpen}
-        onClose={() => { setGoalFormOpen(false); setSelectedEmployeeId(undefined); }}
-        targetEmployeeId={selectedEmployeeId}
-      />
     </div>
   );
 }

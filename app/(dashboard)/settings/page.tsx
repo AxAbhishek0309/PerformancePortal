@@ -16,6 +16,26 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const { theme, setTheme } = useTheme();
   const { goals } = useStore();
+  const isAdmin = user?.role === 'admin';
+  const [resetting, setResetting] = useState(false);
+
+  const handleResetDemo = async () => {
+    if (!confirm('This will wipe ALL goals, check-ins, approvals, and notifications in Supabase and restore the demo state. Continue?')) return;
+    setResetting(true);
+    try {
+      const res = await fetch('/api/reset-demo', { method: 'POST' });
+      const json = await res.json();
+      if (json.ok) {
+        toast.success(json.mode === 'mock' ? 'Demo reset (mock mode — refresh to see changes)' : 'Demo data reset successfully. Refresh the page.');
+      } else {
+        toast.error(`Reset failed: ${json.error}`);
+      }
+    } catch {
+      toast.error('Reset request failed');
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const [name, setName] = useState(user?.name ?? '');
   const [department, setDepartment] = useState(user?.department ?? '');
@@ -244,7 +264,22 @@ export default function SettingsPage() {
           >
             Deactivate Account
           </Button>
+          {isAdmin && (
+            <Button
+              variant="outline"
+              className="border-red-200 text-red-600 dark:border-red-900 dark:text-red-400"
+              onClick={handleResetDemo}
+              disabled={resetting}
+            >
+              {resetting ? 'Resetting…' : 'Reset to Demo State'}
+            </Button>
+          )}
         </div>
+        {isAdmin && (
+          <p className="text-xs text-muted-foreground mt-3">
+            Reset to Demo State wipes all goals, check-ins, approvals, and notifications in Supabase and restores the default shared goal. Admin only.
+          </p>
+        )}
       </Card>
     </div>
   );

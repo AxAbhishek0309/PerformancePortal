@@ -1,3 +1,11 @@
+/**
+ * All DB operations go through /api/sync (POST/PATCH) which uses the service
+ * role key server-side. Direct client-side Supabase calls with the anon key
+ * would be blocked by RLS (error 42501) because no permissive policies exist.
+ *
+ * This module is kept for read operations only (used during initial load in
+ * store.loadAll). Writes are handled exclusively via the sync API route.
+ */
 import { supabase } from '../supabase';
 import { Goal, Approval, CheckIn, AuditLog, Notification, EscalationRule, EscalationLog, User } from '../types';
 import {
@@ -6,6 +14,31 @@ import {
   goalToRow, approvalToRow, checkinToRow, auditToRow,
   notificationToRow, escalationRuleToRow, escalationLogToRow,
 } from './sync-mappers';
+
+// ─── Sync API helper ─────────────────────────────────────────────────────────
+// All mutations go through /api/sync (PATCH) which uses the service role key.
+// This avoids RLS 42501 errors that occur when the anon client tries to write.
+
+async function syncPatch(table: string, id: string, data: Record<string, unknown>): Promise<void> {
+  const res = await fetch('/api/sync', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table, id, data }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error ?? `sync PATCH failed on ${table}`);
+}
+
+async function syncPost(table: string, row: Record<string, unknown>): Promise<void> {
+  // PUT upserts a single pre-mapped DB row directly (no re-mapping server-side)
+  const res = await fetch('/api/sync', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table, row }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error ?? `sync PUT failed on ${table}`);
+}
 
 // ─── Goals ────────────────────────────────────────────────────────────────────
 
@@ -16,8 +49,7 @@ export async function getAllGoals(): Promise<Goal[]> {
 }
 
 export async function createGoal(goal: Goal): Promise<void> {
-  const { error } = await supabase.from('goals').insert(goalToRow(goal));
-  if (error) throw error;
+  await syncPost('goals', goalToRow(goal) as Record<string, unknown>);
 }
 
 export async function updateGoal(id: string, updates: Partial<Goal>): Promise<void> {
@@ -31,23 +63,27 @@ export async function updateGoal(id: string, updates: Partial<Goal>): Promise<vo
   if (updates.targetValue !== undefined) row.target_value = updates.targetValue;
   if (updates.currentValue !== undefined) row.current_value = updates.currentValue;
   if (updates.weightage !== undefined) row.weightage = updates.weightage;
-  if (updates.deadline !== undefined) row.deadline = updates.deadline.toISOString();
+  if (updates.deadline !== undefined) row.deadline = (updates.deadline instanceof Date ? updates.deadline : new Date(updates.deadline as string)).toISOString();
   if (updates.status !== undefined) row.status = updates.status;
   if (updates.performanceStatus !== undefined) row.performance_status = updates.performanceStatus;
   if (updates.approvedBy !== undefined) row.approved_by = updates.approvedBy ?? null;
-  if (updates.approvedAt !== undefined) row.approved_at = updates.approvedAt?.toISOString() ?? null;
+  if (updates.approvedAt !== undefined) row.approved_at = updates.approvedAt ? (updates.approvedAt instanceof Date ? updates.approvedAt : new Date(updates.approvedAt as string)).toISOString() : null;
   if (updates.isShared !== undefined) row.is_shared = updates.isShared;
   if (updates.sharedBy !== undefined) row.shared_by = updates.sharedBy ?? null;
   if (updates.parentGoalId !== undefined) row.parent_goal_id = updates.parentGoalId ?? null;
   row.updated_at = new Date().toISOString();
 
-  const { error } = await supabase.from('goals').update(row).eq('id', id);
-  if (error) throw error;
+  await syncPatch('goals', id, row);
 }
 
 export async function deleteGoal(id: string): Promise<void> {
-  const { error } = await supabase.from('goals').delete().eq('id', id);
-  if (error) throw error;
+  const res = await fetch('/api/sync', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table: 'goals', id }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error ?? 'sync DELETE failed on goals');
 }
 
 // ─── Approvals ────────────────────────────────────────────────────────────────
@@ -59,8 +95,7 @@ export async function getAllApprovals(): Promise<Approval[]> {
 }
 
 export async function createApproval(approval: Approval): Promise<void> {
-  const { error } = await supabase.from('approvals').insert(approvalToRow(approval));
-  if (error) throw error;
+  await syncPost('approvals', approvalToRow(approval) as Record<string, unknown>);
 }
 
 export async function updateApproval(id: string, updates: Partial<Approval>): Promise<void> {
@@ -68,11 +103,10 @@ export async function updateApproval(id: string, updates: Partial<Approval>): Pr
   if (updates.status !== undefined) row.status = updates.status;
   if (updates.comments !== undefined) row.comments = updates.comments;
   if (updates.reviewedBy !== undefined) row.reviewed_by = updates.reviewedBy ?? null;
-  if (updates.reviewedAt !== undefined) row.reviewed_at = updates.reviewedAt?.toISOString() ?? null;
+  if (updates.reviewedAt !== undefined) row.reviewed_at = updates.reviewedAt ? (updates.reviewedAt instanceof Date ? updates.reviewedAt : new Date(updates.reviewedAt as string)).toISOString() : null;
   if (updates.history !== undefined) row.history = updates.history;
 
-  const { error } = await supabase.from('approvals').update(row).eq('id', id);
-  if (error) throw error;
+  await syncPatch('approvals', id, row);
 }
 
 // ─── Check-ins ────────────────────────────────────────────────────────────────
@@ -84,16 +118,14 @@ export async function getAllCheckins(): Promise<CheckIn[]> {
 }
 
 export async function createCheckin(checkin: CheckIn): Promise<void> {
-  const { error } = await supabase.from('checkins').insert(checkinToRow(checkin));
-  if (error) throw error;
+  await syncPost('checkins', checkinToRow(checkin) as Record<string, unknown>);
 }
 
 export async function updateCheckinComment(id: string, comment: string): Promise<void> {
-  const { error } = await supabase
-    .from('checkins')
-    .update({ manager_comment: comment, commented_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) throw error;
+  await syncPatch('checkins', id, {
+    manager_comment: comment,
+    commented_at: new Date().toISOString(),
+  });
 }
 
 // ─── Audit Logs ───────────────────────────────────────────────────────────────
@@ -105,8 +137,7 @@ export async function getAllAuditLogs(): Promise<AuditLog[]> {
 }
 
 export async function createAuditLog(log: AuditLog): Promise<void> {
-  const { error } = await supabase.from('audit_logs').insert(auditToRow(log));
-  if (error) throw error;
+  await syncPost('audit_logs', auditToRow(log) as Record<string, unknown>);
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
@@ -131,18 +162,21 @@ export async function getAllNotifications(): Promise<Notification[]> {
 }
 
 export async function createNotification(n: Notification): Promise<void> {
-  const { error } = await supabase.from('notifications').insert(notificationToRow(n));
-  if (error) throw error;
+  await syncPost('notifications', notificationToRow(n) as Record<string, unknown>);
 }
 
 export async function markNotificationRead(id: string): Promise<void> {
-  const { error } = await supabase.from('notifications').update({ read: true }).eq('id', id);
-  if (error) throw error;
+  await syncPatch('notifications', id, { read: true });
 }
 
 export async function markAllNotificationsRead(userId: string): Promise<void> {
-  const { error } = await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
-  if (error) throw error;
+  const res = await fetch('/api/sync', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table: 'notifications', bulkUpdate: { read: true }, where: { user_id: userId } }),
+  });
+  const json = await res.json();
+  if (!json.ok) console.warn('[db] markAllNotificationsRead failed:', json.error);
 }
 
 // ─── Escalation Rules ─────────────────────────────────────────────────────────
@@ -154,8 +188,7 @@ export async function getEscalationRules(): Promise<EscalationRule[]> {
 }
 
 export async function updateEscalationRule(id: string, updates: Partial<EscalationRule>): Promise<void> {
-  const { error } = await supabase.from('escalation_rules').update(escalationRuleToRow({ id, ...updates } as EscalationRule)).eq('id', id);
-  if (error) throw error;
+  await syncPatch('escalation_rules', id, escalationRuleToRow({ id, ...updates } as EscalationRule) as Record<string, unknown>);
 }
 
 // ─── Escalation Logs ──────────────────────────────────────────────────────────
@@ -167,16 +200,11 @@ export async function getEscalationLogs(): Promise<EscalationLog[]> {
 }
 
 export async function createEscalationLog(log: EscalationLog): Promise<void> {
-  const { error } = await supabase.from('escalation_logs').insert(escalationLogToRow(log));
-  if (error) throw error;
+  await syncPost('escalation_logs', escalationLogToRow(log) as Record<string, unknown>);
 }
 
 export async function resolveEscalationLog(id: string): Promise<void> {
-  const { error } = await supabase
-    .from('escalation_logs')
-    .update({ resolved_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) throw error;
+  await syncPatch('escalation_logs', id, { resolved_at: new Date().toISOString() });
 }
 
 // ─── Users / Profiles ─────────────────────────────────────────────────────────

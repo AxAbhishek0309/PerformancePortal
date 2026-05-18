@@ -193,14 +193,30 @@ export function checkinToRow(c: CheckIn) {
   };
 }
 
+/** Safely stringify a change value — coerces Date objects to ISO strings. */
+function serializeChangeValue(v: unknown): unknown {
+  if (v instanceof Date) return v.toISOString();
+  if (v !== null && typeof v === 'object') return String(v);
+  return v;
+}
+
 export function auditToRow(l: AuditLog) {
+  const changes = l.changes
+    ? Object.fromEntries(
+        Object.entries(l.changes).map(([k, { before, after }]) => [
+          k,
+          { before: serializeChangeValue(before), after: serializeChangeValue(after) },
+        ])
+      )
+    : null;
+
   return {
     id: l.id,
     user_id: l.userId,
     action: l.action,
     resource_type: l.resourceType,
     resource_id: l.resourceId,
-    changes: l.changes ?? null,
+    changes,
     after_lock: l.afterLock ?? false,
     timestamp: toISO(l.timestamp),
   };

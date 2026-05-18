@@ -23,21 +23,44 @@ export default function CompletionDashboardPage() {
       .map((ownerId) => {
         const user = Object.values(users).find((u) => u.id === ownerId);
         const ownerGoals = approvedGoals.filter((g) => g.ownerId === ownerId);
-        const ownerCheckins = checkins.filter(
-          (c) => c.ownerId === ownerId && c.period === selectedQuarter
-        );
-        const checkedGoalIds = new Set(ownerCheckins.map((c) => c.goalId));
-        const completed = ownerGoals.filter((g) => checkedGoalIds.has(g.id)).length;
+
+        // For each goal, find the latest check-in for the selected quarter
+        const goalStatuses = ownerGoals.map((g) => {
+          const latestCheckin = checkins
+            .filter((c) => c.goalId === g.id && c.period === selectedQuarter)
+            .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())[0];
+
+          // Use the goal's current performanceStatus (set by employee during check-in)
+          // A check-in was submitted if one exists for this quarter
+          return {
+            goalId: g.id,
+            hasCheckin: !!latestCheckin,
+            // The actual status is on the goal itself — updated when employee submits check-in
+            performanceStatus: g.performanceStatus,
+          };
+        });
+
         const total = ownerGoals.length;
-        const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+        const checkedIn = goalStatuses.filter((s) => s.hasCheckin).length;
+        const completedCount = goalStatuses.filter((s) => s.performanceStatus === 'completed').length;
+        const onTrackCount = goalStatuses.filter((s) => s.performanceStatus === 'on_track').length;
+        const notStartedCount = goalStatuses.filter((s) => s.performanceStatus === 'not_started').length;
+
+        // Check-in completion rate = how many goals have a check-in this quarter
+        const rate = total > 0 ? Math.round((checkedIn / total) * 100) : 0;
+
         return {
           id: ownerId,
           name: user?.name ?? ownerId,
           department: user?.department ?? '—',
           total,
-          completed,
+          checkedIn,
+          completedCount,
+          onTrackCount,
+          notStartedCount,
           rate,
-          done: completed === total && total > 0,
+          // All goals checked in = check-in complete (regardless of status)
+          done: checkedIn === total && total > 0,
         };
       })
       .filter((r) =>
@@ -57,9 +80,12 @@ export default function CompletionDashboardPage() {
         Department: r.department,
         Quarter: selectedQuarter,
         'Goals Total': r.total,
-        'Check-ins Done': r.completed,
+        'Check-ins Done': r.checkedIn,
         'Completion Rate': `${r.rate}%`,
-        Status: r.done ? 'Complete' : 'Pending',
+        Completed: r.completedCount,
+        'On Track': r.onTrackCount,
+        'Not Started': r.notStartedCount,
+        'Check-in Status': r.done ? 'All Checked In' : 'Pending',
       })),
       `checkin-completion-${selectedQuarter.replace(' ', '-')}`
     );
@@ -147,9 +173,9 @@ export default function CompletionDashboardPage() {
                 <th className="text-left py-3 px-4 font-semibold">Employee</th>
                 <th className="text-left py-3 px-4 font-semibold">Department</th>
                 <th className="text-right py-3 px-4 font-semibold">Goals</th>
-                <th className="text-right py-3 px-4 font-semibold">Check-ins Done</th>
-                <th className="text-right py-3 px-4 font-semibold">Progress</th>
-                <th className="text-right py-3 px-4 font-semibold">Status</th>
+                <th className="text-right py-3 px-4 font-semibold">Checked In</th>
+                <th className="text-left py-3 px-4 font-semibold">Goal Status Breakdown</th>
+                <th className="text-right py-3 px-4 font-semibold">Check-in Status</th>
               </tr>
             </thead>
             <tbody>
@@ -165,7 +191,6 @@ export default function CompletionDashboardPage() {
                     <td className="py-4 px-4 font-medium">{row.name}</td>
                     <td className="py-4 px-4 text-muted-foreground">{row.department}</td>
                     <td className="py-4 px-4 text-right text-muted-foreground">{row.total}</td>
-                    <td className="py-4 px-4 text-right text-muted-foreground">{row.completed}</td>
                     <td className="py-4 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <div className="w-20 h-2 bg-muted rounded-full">
@@ -174,13 +199,32 @@ export default function CompletionDashboardPage() {
                             style={{ width: `${row.rate}%` }}
                           />
                         </div>
-                        <span className="text-xs w-8 text-right">{row.rate}%</span>
+                        <span className="text-xs w-12 text-right">{row.checkedIn}/{row.total}</span>
+                      </div>
+                    </td>
+                    <td className="py-4 px-4">
+                      <div className="flex gap-1.5 flex-wrap">
+                        {row.completedCount > 0 && (
+                          <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 text-xs">
+                            {row.completedCount} Completed
+                          </Badge>
+                        )}
+                        {row.onTrackCount > 0 && (
+                          <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 text-xs">
+                            {row.onTrackCount} On Track
+                          </Badge>
+                        )}
+                        {row.notStartedCount > 0 && (
+                          <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 text-xs">
+                            {row.notStartedCount} Not Started
+                          </Badge>
+                        )}
                       </div>
                     </td>
                     <td className="py-4 px-4 text-right">
                       {row.done ? (
-                        <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Complete</Badge>
-                      ) : row.completed > 0 ? (
+                        <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">All Checked In</Badge>
+                      ) : row.checkedIn > 0 ? (
                         <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">In Progress</Badge>
                       ) : (
                         <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">Pending</Badge>

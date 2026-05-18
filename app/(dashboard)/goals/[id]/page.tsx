@@ -33,8 +33,11 @@ interface Props {
 export default function GoalDetailPage({ params }: Props) {
   const { id } = use(params);
   const { user, role } = useAuth();
-  const { goals, checkins: allCheckins, submitGoal, addManagerComment, unlockGoal } = useStore();
+  const { goals, checkins: allCheckins, submitGoal, addManagerComment, unlockGoal, users } = useStore();
   const checkins = allCheckins.filter((c) => c.goalId === id);
+
+  // Back destination depends on role — employees use /my-goals, others use /goals
+  const backHref = role === 'employee' ? '/my-goals' : '/goals';
 
   const [editOpen, setEditOpen] = useState(false);
   const [checkinOpen, setCheckinOpen] = useState(false);
@@ -47,7 +50,7 @@ export default function GoalDetailPage({ params }: Props) {
     return (
       <div className="text-center py-12">
         <h1 className="text-2xl font-bold text-foreground mb-4">Goal not found</h1>
-        <Link href="/goals">
+        <Link href={role === 'employee' ? '/my-goals' : '/goals'}>
           <Button>Back to goals</Button>
         </Link>
       </div>
@@ -58,7 +61,10 @@ export default function GoalDetailPage({ params }: Props) {
   const isOwner = user?.id === goal.ownerId;
   const isEditable = user ? canEditGoal(goal, user.id) : false;
   const checkinWindowOpen = isCheckinOpen();
-  const canCheckin = isOwner && isGoalActiveForCheckin(goal) && checkinWindowOpen;
+  const goalActiveForCheckin = isGoalActiveForCheckin(goal);
+  const canCheckin = isOwner && goalActiveForCheckin && checkinWindowOpen;
+  // Goal is active but window is closed — show disabled button with reason
+  const checkinWindowClosed = isOwner && goalActiveForCheckin && !checkinWindowOpen;
   const canSubmit = isEditable && isGoalSettingOpen();
 
   const handleSubmit = () => {
@@ -86,7 +92,7 @@ export default function GoalDetailPage({ params }: Props) {
 
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Link href="/goals">
+        <Link href={backHref}>
           <Button variant="ghost" size="icon">
             <ArrowLeft className="w-4 h-4" />
           </Button>
@@ -161,6 +167,9 @@ export default function GoalDetailPage({ params }: Props) {
                   <Send className="w-3.5 h-3.5" />
                   Add Check-in
                 </Button>
+              )}
+              {checkinWindowClosed && (
+                <span className="text-xs text-muted-foreground">Window closed</span>
               )}
             </div>
 
@@ -243,6 +252,11 @@ export default function GoalDetailPage({ params }: Props) {
                   Add Check-in
                 </Button>
               )}
+              {checkinWindowClosed && (
+                <Button className="w-full gap-2" variant="outline" disabled title="Check-in window is currently closed">
+                  Check-in Window Closed
+                </Button>
+              )}
               {role === 'admin' && goal.status === 'locked' && (
                 <Button
                   className="w-full gap-2"
@@ -274,7 +288,9 @@ export default function GoalDetailPage({ params }: Props) {
               {goal.approvedBy && (
                 <div>
                   <p className="text-xs uppercase text-muted-foreground font-semibold">Approved By</p>
-                  <p className="mt-1">{goal.approvedBy}</p>
+                  <p className="mt-1">
+                    {Object.values(users).find((u) => u.id === goal.approvedBy)?.name ?? goal.approvedBy}
+                  </p>
                 </div>
               )}
               {goal.approvedAt && (

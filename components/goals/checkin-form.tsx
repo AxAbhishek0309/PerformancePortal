@@ -31,7 +31,7 @@ import { Button } from '@/components/ui/button';
 import { QUARTERS } from '@/lib/constants';
 import { useStore } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { Goal, CheckIn, PerformanceStatus } from '@/lib/types';
+import { Goal, CheckIn } from '@/lib/types';
 import { PERFORMANCE_STATUS_CONFIG } from '@/lib/goal-utils';
 import { isCheckinOpen, getDefaultCheckinQuarter, getScheduleStatusMessage } from '@/lib/cycle-schedule';
 import { AlertCircle } from 'lucide-react';
@@ -54,7 +54,7 @@ interface CheckinFormProps {
 
 export function CheckinForm({ open, onClose, goal }: CheckinFormProps) {
   const { user } = useAuth();
-  const { addCheckin, setPerformanceStatus } = useStore();
+  const { addCheckin } = useStore();
   const checkinOpen = isCheckinOpen();
   const defaultQuarter = getDefaultCheckinQuarter() ?? '';
 
@@ -76,6 +76,17 @@ export function CheckinForm({ open, onClose, goal }: CheckinFormProps) {
       });
       return;
     }
+
+    // Achieved value must not exceed target (for Min/Max/Zero UoM types)
+    // For timeline goals, currentValue represents % complete so cap at targetValue
+    if (values.progressValue > goal.targetValue) {
+      toast.error(
+        `Achieved value (${values.progressValue}) cannot exceed the target (${goal.targetValue} ${goal.unitOfMeasurement}).`,
+        { description: 'Please enter a value less than or equal to the target.' }
+      );
+      return;
+    }
+
     const checkin: CheckIn = {
       id: `checkin-${Date.now()}`,
       goalId: goal.id,
@@ -85,8 +96,8 @@ export function CheckinForm({ open, onClose, goal }: CheckinFormProps) {
       notes: values.notes,
       submittedAt: new Date(),
     };
-    addCheckin(checkin, user.id);
-    setPerformanceStatus(goal.id, values.performanceStatus, user.id);
+    // Pass performanceStatus atomically with the check-in so both update together
+    addCheckin(checkin, user.id, values.performanceStatus);
     form.reset();
     onClose();
   };
@@ -151,8 +162,21 @@ export function CheckinForm({ open, onClose, goal }: CheckinFormProps) {
                 <FormItem>
                   <FormLabel>Actual Achievement ({goal.unitOfMeasurement})</FormLabel>
                   <FormControl>
-                    <Input type="number" min={0} step="any" {...field} />
+                    <Input
+                      type="number"
+                      min={0}
+                      max={goal.targetValue}
+                      step="any"
+                      {...field}
+                      className={Number(field.value) > goal.targetValue ? 'border-destructive' : ''}
+                    />
                   </FormControl>
+                  {Number(field.value) > goal.targetValue && (
+                    <p className="flex items-center gap-1 text-xs text-destructive mt-1">
+                      <AlertCircle className="w-3 h-3" />
+                      Cannot exceed target of {goal.targetValue} {goal.unitOfMeasurement}
+                    </p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -196,7 +220,7 @@ export function CheckinForm({ open, onClose, goal }: CheckinFormProps) {
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={!checkinOpen}>Submit Check-in</Button>
+              <Button type="submit" disabled={!checkinOpen || Number(form.watch('progressValue')) > goal.targetValue}>Submit Check-in</Button>
             </DialogFooter>
           </form>
         </Form>

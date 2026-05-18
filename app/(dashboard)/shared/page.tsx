@@ -22,7 +22,6 @@ import {
 } from '@/components/ui/select';
 import { useStore } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
-import { MOCK_USERS } from '@/lib/auth-context';
 import { THRUST_AREAS, UNITS_OF_MEASUREMENT } from '@/lib/constants';
 import { UOM_TYPE_LABELS, inferUomType } from '@/lib/goal-utils';
 import { formatDate } from '@/lib/utils';
@@ -41,15 +40,23 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-const EMPLOYEES = Object.values(MOCK_USERS).filter((u) => u.role === 'employee');
-
 export default function SharedGoalsPage() {
   const { user } = useAuth();
-  const { goals, pushSharedGoal } = useStore();
+  const { goals, pushSharedGoal, users } = useStore();
   const [open, setOpen] = useState(false);
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
 
+  // BRD §2.1 — only managers and admins can push shared goals
+  if (user?.role === 'employee') {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">You don&apos;t have permission to access this page.</p>
+      </div>
+    );
+  }
+
   const sharedGoals = goals.filter((g) => g.isShared);
+  const EMPLOYEES = Object.values(users).filter((u) => u.role === 'employee');
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -115,7 +122,7 @@ export default function SharedGoalsPage() {
       ) : (
         <div className="space-y-4">
           {sharedGoals.map((goal) => {
-            const owner = Object.values(MOCK_USERS).find((u) => u.id === goal.ownerId);
+          const owner = Object.values(users).find((u) => u.id === goal.ownerId);
             return (
               <Card key={goal.id} className="p-5">
                 <div className="flex items-start justify-between">

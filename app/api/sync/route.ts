@@ -85,7 +85,7 @@ export async function POST(request: Request) {
       if (!rows.length) continue;
       const { error } = await db.from(name).upsert(rows as never[], { onConflict: 'id' });
       if (error) {
-        console.error(`[sync POST] ${name}:`, error.message);
+        console.error(`[sync POST] ${name}:`, error.message, error.details ?? '');
         // Don't fail the whole sync for one table error
       }
     }
@@ -97,7 +97,49 @@ export async function POST(request: Request) {
   }
 }
 
-// ─── PATCH — single-record mutations (fast path) ─────────────────────────────
+// ─── PUT — single pre-mapped row upsert ──────────────────────────────────────
+// Used by syncPost() in lib/db/index.ts. The row is already in snake_case DB
+// format — no re-mapping needed, unlike the POST bulk endpoint.
+
+export async function PUT(request: Request) {
+  if (!isSupabaseServerConfigured()) {
+    return NextResponse.json({ ok: false, reason: 'not_configured' });
+  }
+
+  try {
+    const { table, row } = await request.json();
+    const db = createServiceClient();
+    const { error } = await db.from(table).upsert(row, { onConflict: 'id' });
+    if (error) {
+      console.error(`[sync PUT] ${table}:`, error.message, error.details ?? '');
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error('[sync PUT]', err);
+    return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
+  }
+}
+
+// ─── DELETE — single-record delete (fast path) ───────────────────────────────
+
+export async function DELETE(request: Request) {
+  if (!isSupabaseServerConfigured()) {
+    return NextResponse.json({ ok: false, reason: 'not_configured' });
+  }
+
+  try {
+    const { table, id } = await request.json();
+    const db = createServiceClient();
+    const { error } = await db.from(table).delete().eq('id', id);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
+  }
+}
+
+// ─── PATCH — single-record upsert or bulk update (fast path) ─────────────────
 
 export async function PATCH(request: Request) {
   if (!isSupabaseServerConfigured()) {
@@ -105,10 +147,33 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const { table, id, data } = await request.json();
+    const body = await request.json();
     const db = createServiceClient();
-    const { error } = await db.from(table).upsert({ id, ...data }, { onConflict: 'id' });
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+    // Bulk update: { table, bulkUpdate: {...}, where: { col: val } }
+    if (body.bulkUpdate) {
+      const { table, bulkUpdate, where } = body as {
+        table: string;
+        bulkUpdate: Record<string, unknown>;
+        where: Record<string, unknown>;
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let query: any = db.from(table).update(bulkUpdate);
+      for (const [col, val] of Object.entries(where)) {
+        query = query.eq(col, val);
+      }
+      const { error } = await query;
+      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      return NextResponse.json({ ok: true });
+    }
+
+    // Single-record update: { table, id, data }
+    const { table, id, data } = body;
+    const { error } = await db.from(table).update(data).eq('id', id);
+    if (error) {
+      console.error(`[sync PATCH] ${table}/${id}:`, error.message, error.details);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });

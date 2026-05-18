@@ -135,7 +135,18 @@ export default function EscalationsPage() {
                       <p className="text-sm text-foreground">{log.message}</p>
                       <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
                         <span>Target: {target?.name ?? log.targetUserId}</span>
-                        <span>Escalated to: {log.escalatedTo.join(', ')}</span>
+                        <span>
+                          Escalated to:{' '}
+                          {log.escalatedTo
+                            .map((e) => {
+                              if (e.startsWith('role:')) {
+                                const role = e.replace('role:', '');
+                                return role.charAt(0).toUpperCase() + role.slice(1) + 's';
+                              }
+                              return Object.values(MOCK_USERS).find((u) => u.id === e)?.name ?? e;
+                            })
+                            .join(', ')}
+                        </span>
                         <span>Triggered: {formatDate(log.createdAt)}</span>
                         {log.resolvedAt && <span>Resolved: {formatDate(log.resolvedAt)}</span>}
                       </div>

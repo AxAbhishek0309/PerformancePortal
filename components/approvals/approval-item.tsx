@@ -26,7 +26,10 @@ const STATUS_CONFIG = {
 
 export function ApprovalItem({ approval, expandable = true }: ApprovalItemProps) {
   const { user } = useAuth();
-  const { approveGoal, returnGoal, rejectGoal, editApprovalGoal, goals } = useStore();
+  const { approveGoal, returnGoal, rejectGoal, editApprovalGoal, goals, users } = useStore();
+
+  const submitter = Object.values(users).find((u) => u.id === approval.submittedBy);
+  const submitterName = submitter?.name ?? approval.submittedBy;
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [returnDialogOpen, setReturnDialogOpen] = useState(false);
@@ -80,7 +83,7 @@ export function ApprovalItem({ approval, expandable = true }: ApprovalItemProps)
                 {approval.status}
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground/80 line-clamp-1">{approval.submittedBy}</p>
+            <p className="text-sm text-muted-foreground/80 line-clamp-1">{submitterName}</p>
           </div>
           {expandable && (
             <ChevronRight
@@ -95,7 +98,7 @@ export function ApprovalItem({ approval, expandable = true }: ApprovalItemProps)
             <div className="grid md:grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Submitted By</p>
-                <p className="text-sm font-medium text-foreground">{approval.submittedBy}</p>
+                <p className="text-sm font-medium text-foreground">{submitterName}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Submitted Date</p>

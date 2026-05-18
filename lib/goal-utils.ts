@@ -133,8 +133,13 @@ export const PERFORMANCE_STATUS_CONFIG: Record<
   },
 };
 
+/**
+ * A goal is completed only when the employee explicitly marks it as 'completed'.
+ * The calculated progress score (BRD §2.2) is for tracking only — it does NOT
+ * determine completion status. The employee's performanceStatus is the source of truth.
+ */
 export const isGoalCompleted = (goal: Goal): boolean =>
-  goal.performanceStatus === 'completed' || calculateProgress(goal) >= 100;
+  goal.performanceStatus === 'completed';
 
 /** Goals approved and locked are eligible for quarterly check-ins */
 export const isGoalActiveForCheckin = (goal: Goal): boolean =>

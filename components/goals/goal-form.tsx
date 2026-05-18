@@ -23,6 +23,7 @@ import { useStore } from '@/lib/store';
 import { useAuth } from '@/lib/auth-context';
 import { Goal } from '@/lib/types';
 import { UOM_TYPE_LABELS, inferUomType } from '@/lib/goal-utils';
+import { toDate } from '@/lib/utils';
 import { toast } from 'sonner';
 import { isGoalSettingOpen, getScheduleStatusMessage } from '@/lib/cycle-schedule';
 import { canEditSharedGoalWeightage } from '@/lib/goal-utils';
@@ -52,21 +53,19 @@ interface GoalFormProps {
   open: boolean;
   onClose: () => void;
   editGoal?: Goal;
-  /** When a manager creates a goal for a specific employee */
-  targetEmployeeId?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function GoalForm({ open, onClose, editGoal, targetEmployeeId }: GoalFormProps) {
+export function GoalForm({ open, onClose, editGoal }: GoalFormProps) {
   const { user } = useAuth();
-  const { goals, addGoal, updateGoal, submitGoal } = useStore();
+  const { goals, addGoal, updateGoal } = useStore();
   const [submitError, setSubmitError] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
 
-  // The owner of the goal being created/edited
-  const ownerId = targetEmployeeId ?? editGoal?.ownerId ?? user?.id ?? '';
+  // Owner is always the logged-in user — per BRD, employees create their own goals only
+  const ownerId = editGoal?.ownerId ?? user?.id ?? '';
 
   // Goals owned by this owner (for weightage validation)
   const ownerGoals = goals.filter((g) => g.ownerId === ownerId && g.id !== editGoal?.id);
@@ -122,7 +121,9 @@ export function GoalForm({ open, onClose, editGoal, targetEmployeeId }: GoalForm
     if (!user) return;
     setSubmitError('');
 
-    if (!editGoal && !isGoalSettingOpen()) {
+    // Employees and managers creating their own goals are gated by the cycle window
+    // Admin can always create (exception handling per BRD §3)
+    if (!editGoal && user.role !== 'admin' && !isGoalSettingOpen()) {
       setSubmitError(getScheduleStatusMessage());
       return;
     }
@@ -165,13 +166,7 @@ export function GoalForm({ open, onClose, editGoal, targetEmployeeId }: GoalForm
         createdAt: new Date(), updatedAt: new Date(),
       };
       addGoal(newGoal, user.id);
-      if (targetEmployeeId || user.role === 'manager') {
-        // Automatically submit manager-created goals so Admin can approve
-        submitGoal(newGoal.id, user.id);
-        toast.success(targetEmployeeId ? 'Goal created and submitted for Admin approval' : 'Goal submitted for Admin approval');
-      } else {
-        toast.success('Goal created');
-      }
+      toast.success('Goal created');
     }
     onClose();
   };
@@ -185,15 +180,8 @@ export function GoalForm({ open, onClose, editGoal, targetEmployeeId }: GoalForm
               ? 'Adjust Weightage (Shared Goal)'
               : editGoal
                 ? 'Edit Goal'
-                : targetEmployeeId
-                  ? 'Create Goal for Employee'
-                  : 'Create New Goal'}
+                : 'Create New Goal'}
           </DialogTitle>
-          {targetEmployeeId && (
-            <p className="text-sm text-muted-foreground">
-              This goal will appear in the employee's My Goals page as a draft.
-            </p>
-          )}
         </DialogHeader>
 
         {/* Weightage tracker */}
@@ -365,6 +353,10 @@ export function GoalForm({ open, onClose, editGoal, targetEmployeeId }: GoalForm
 }
 
 function buildDefaults(editGoal: Goal | undefined, remainingWeightage: number): GoalFormValues {
+  // editGoal.deadline may be a string (after JSON hydration) — always coerce via toDate
+  const deadlineStr = editGoal?.deadline
+    ? (() => { try { return toDate(editGoal.deadline).toISOString().split('T')[0]; } catch { return ''; } })()
+    : '';
   return {
     title: editGoal?.title ?? '',
     description: editGoal?.description ?? '',
@@ -373,9 +365,7 @@ function buildDefaults(editGoal: Goal | undefined, remainingWeightage: number): 
     uomType: editGoal?.uomType ?? 'min',
     targetValue: editGoal?.targetValue ?? 0,
     currentValue: editGoal?.currentValue ?? 0,
-    // Default to remaining capacity capped at 40, but never below BRD minimum of 10
-    // If remaining < 10, default to 0 — the "no capacity" banner will block submission
     weightage: editGoal?.weightage ?? (remainingWeightage >= 10 ? Math.min(remainingWeightage, 40) : 0),
-    deadline: editGoal?.deadline ? editGoal.deadline.toISOString().split('T')[0] : '',
+    deadline: deadlineStr,
   };
 }
